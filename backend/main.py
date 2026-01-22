@@ -65,49 +65,78 @@ def get_completion(prompt: str, json_mode: bool = False) -> str:
     )
     return response.choices[0].message.content
 
-def get_embedding(text: str) -> List[float]:
+def get_embeddings(texts: List[str]) -> List[List[float]]:
+    if not texts:
+        return []
+    # OpenAI supports up to 2048 inputs per request for embeddings
     response = client.embeddings.create(
-        input=text,
+        input=texts,
         model="text-embedding-3-small"
     )
-    return response.data[0].embedding
+    return [d.embedding for d in response.data]
+
+def get_embedding(text: str) -> List[float]:
+    return get_embeddings([text])[0]
 
 def cosine_similarity(a, b):
     return np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b))
 
 def calculate_score(resume_skills: List[str], job_data: JobData) -> int:
-    if not job_data.required_skills and not job_data.preferred_skills:
-        return 0
-    
     if not resume_skills:
         return 0
+    if not job_data.required_skills and not job_data.preferred_skills:
+        return 0
 
-    # Get embeddings for all resume skills combined and individual job skills
-    # To keep it simple and deterministic as per spec, we'll average similarities
+    # Step 1: Generate all embeddings in batches
+    resume_embs = get_embeddings(resume_skills)
     
-    res_text = ", ".join(resume_skills)
-    res_emb = get_embedding(res_text)
-    
-    def get_avg_sim(job_skills):
-        if not job_skills: return 1.0
-        sims = []
-        for s in job_skills:
-            s_emb = get_embedding(s)
-            sims.append(cosine_similarity(res_emb, s_emb))
-        return np.mean(sims)
+    # Helper for BestMatchScore
+    def get_best_match(job_skill_emb, res_embs):
+        if not res_embs:
+            return 0.0
+        similarities = [cosine_similarity(job_skill_emb, res_emb) for res_emb in res_embs]
+        return max(similarities)
 
-    req_sim = get_avg_sim(job_data.required_skills)
-    pref_sim = get_avg_sim(job_data.preferred_skills)
-    
+    # Step 2-4: Required Skills
+    req_score = 0.0
+    if job_data.required_skills:
+        req_embs = get_embeddings(job_data.required_skills)
+        req_best_matches = [get_best_match(emb, resume_embs) for emb in req_embs]
+        
+        # Step 3: Coverage (Threshold >= 0.55)
+        matched_required = [m for m in req_best_matches if m >= 0.55]
+        req_coverage = len(matched_required) / len(job_data.required_skills)
+        
+        # Step 4: Strength (Mean of matched skills)
+        req_strength = np.mean(matched_required) if matched_required else 0.0
+        
+        # Step 5 (part): Required Score
+        req_score = (req_coverage * 0.6) + (req_strength * 0.4)
+    else:
+        # If no required skills, we give full marks for this section
+        req_score = 1.0
+
+    # Step 5: Preferred Skills
+    pref_strength = 0.0
+    if job_data.preferred_skills:
+        pref_embs = get_embeddings(job_data.preferred_skills)
+        pref_best_matches = [get_best_match(emb, resume_embs) for emb in pref_embs]
+        pref_strength = np.mean(pref_best_matches) if pref_best_matches else 0.0
+    else:
+        # If no preferred skills, we match it to req_score so it doesn't affect the weighted average
+        # Or just use req_score as the final score later.
+        pref_strength = req_score
+
+    # Step 6: Final Weighted Score
     # Weighting: Required 70%, Preferred 30%
     if not job_data.preferred_skills:
-        score = req_sim * 100
+        final_score = req_score
     elif not job_data.required_skills:
-        score = pref_sim * 100
+        final_score = pref_strength
     else:
-        score = (req_sim * 0.7 + pref_sim * 0.3) * 100
+        final_score = (req_score * 0.7) + (pref_strength * 0.3)
     
-    return int(min(max(score, 0), 100))
+    return int(round(min(max(final_score, 0), 1) * 100))
 
 @app.post("/analyze", response_model=AnalyzeResponse)
 async def analyze(request: AnalyzeRequest):
