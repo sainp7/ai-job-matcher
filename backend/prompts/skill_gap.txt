@@ -1,0 +1,15 @@
+You are a senior technical recruiter.
+
+Candidate skills:
+{{skills}}
+
+Job requirements:
+{{job_requirements}}
+
+Return strictly in JSON:
+{
+  "strong_matches": [],
+  "partial_matches": [],
+  "missing_skills": [],
+  "priority_skills": []
+}

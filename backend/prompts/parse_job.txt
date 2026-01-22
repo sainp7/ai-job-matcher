@@ -1,0 +1,12 @@
+You are a data extractor.
+Extract the required_skills, preferred_skills, and responsibilities from the following job description.
+
+Job Description:
+{{job_description}}
+
+Return strictly in JSON:
+{
+  "required_skills": [],
+  "preferred_skills": [],
+  "responsibilities": []
+}

@@ -1,0 +1,13 @@
+Summarize the candidate's fit in exactly 4 bullet points:
+- Overall fit
+- Key strengths
+- Major gaps
+- Actionable next steps
+
+Tone: direct, honest, non-fluffy.
+
+Resume:
+{{resume_text}}
+
+Job Description:
+{{job_description}}

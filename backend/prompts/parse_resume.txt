@@ -1,0 +1,12 @@
+You are a data extractor. 
+Extract the skills, experience (as a list of bullets), and education from the following resume text.
+
+Resume:
+{{resume_text}}
+
+Return strictly in JSON:
+{
+  "skills": [],
+  "experience": [],
+  "education": []
+}

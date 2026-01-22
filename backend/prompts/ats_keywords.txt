@@ -1,0 +1,16 @@
+You are an ATS system.
+
+Job description:
+{{job_description}}
+
+Resume:
+{{resume_text}}
+
+Return strictly in JSON:
+{
+  "missing_keywords": [],
+  "suggested_placements": {
+    "skills": [],
+    "experience": []
+  }
+}
