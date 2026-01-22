@@ -1,5 +1,9 @@
 You are a data extractor. 
-Extract the skills, experience (as a list of bullets), and education from the following resume text.
+Extract the skills, experience, and education from the following resume text.
+
+- "skills": A list of technical skills (strings)
+- "experience": A list of plain text strings, where each string is a single bullet point or responsibility. Do NOT use objects or dictionaries.
+- "education": A list of plain text strings, where each string represents a degree, certification, or institution. Do NOT use objects or dictionaries.
 
 Resume:
 {{resume_text}}

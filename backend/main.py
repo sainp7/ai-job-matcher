@@ -1,12 +1,18 @@
 import os
 import json
+import io
 import numpy as np
 from typing import List, Dict, Any
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from openai import OpenAI
 from dotenv import load_dotenv
+
+import pdfplumber
+import docx
+from odf import text, teletype
+from odf.opendocument import load
 
 load_dotenv()
 
@@ -22,6 +28,9 @@ app.add_middleware(
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 # Models
+class ParseResponse(BaseModel):
+    text: str
+
 class AnalyzeRequest(BaseModel):
     resume_text: str
     job_description: str
@@ -138,6 +147,85 @@ def calculate_score(resume_skills: List[str], job_data: JobData) -> int:
     
     return int(round(min(max(final_score, 0), 1) * 100))
 
+def normalize_text(text: str) -> str:
+    # Normalize whitespace
+    text = "\n".join([line.strip() for line in text.split("\n")])
+    # Remove repeated empty lines
+    import re
+    text = re.sub(r'\n{3,}', '\n\n', text)
+    return text.strip()
+
+def ensure_list_of_strings(data: Any) -> List[str]:
+    if not isinstance(data, list):
+        return []
+    result = []
+    for item in data:
+        if isinstance(item, str):
+            result.append(item)
+        elif isinstance(item, dict):
+            # Flatten dictionary into a single string
+            result.append(" ".join(str(v) for v in item.values() if v))
+        else:
+            result.append(str(item))
+    return result
+
+@app.post("/parse-resume", response_model=ParseResponse)
+async def parse_resume(file: UploadFile = File(...)):
+    filename = file.filename.lower()
+    content_type = file.content_type
+    
+    try:
+        content = await file.read()
+        if not content:
+            raise HTTPException(status_code=400, detail="Empty file")
+
+        extracted_text = ""
+        
+        if filename.endswith(".pdf") or content_type == "application/pdf":
+            try:
+                with pdfplumber.open(io.BytesIO(content)) as pdf:
+                    for page in pdf.pages:
+                        page_text = page.extract_text()
+                        if page_text:
+                            extracted_text += page_text + "\n"
+            except Exception as e:
+                print(f"pdfplumber error: {e}")
+                raise HTTPException(status_code=400, detail="Unreadable PDF document")
+            
+            if len(extracted_text.strip()) < 50: # Lowered threshold slightly
+                 raise HTTPException(status_code=400, detail="This PDF appears to be a scanned image or has very little text. Please upload a text-based PDF or paste text manually.")
+
+        elif filename.endswith(".docx") or content_type == "application/vnd.openxmlformats-officedocument.wordprocessingml.document":
+            try:
+                doc = docx.Document(io.BytesIO(content))
+                extracted_text = "\n".join([para.text for para in doc.paragraphs])
+            except Exception as e:
+                print(f"python-docx error: {e}")
+                raise HTTPException(status_code=400, detail="Unreadable DOCX document")
+            
+        elif filename.endswith(".odt") or content_type == "application/vnd.oasis.opendocument.text":
+            try:
+                odt_doc = load(io.BytesIO(content))
+                paragraphs = odt_doc.getElementsByType(text.P)
+                extracted_text = "\n".join([teletype.extractText(p) for p in paragraphs])
+            except Exception as e:
+                print(f"odfpy error: {e}")
+                raise HTTPException(status_code=400, detail="Unreadable ODT document")
+            
+        else:
+            raise HTTPException(status_code=400, detail="Unsupported file type. Please upload a PDF, DOCX, or ODT file.")
+
+        if not extracted_text.strip():
+            raise HTTPException(status_code=400, detail="Could not extract text from the document.")
+
+        return ParseResponse(text=normalize_text(extracted_text))
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Parsing error: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error during parsing")
+
 @app.post("/analyze", response_model=AnalyzeResponse)
 async def analyze(request: AnalyzeRequest):
     if not request.resume_text.strip() or not request.job_description.strip():
@@ -147,10 +235,22 @@ async def analyze(request: AnalyzeRequest):
         # 1. Parse Data
         resume_prompt = load_prompt("parse_resume.txt", resume_text=request.resume_text)
         resume_json = json.loads(get_completion(resume_prompt, json_mode=True))
+        
+        # Ensure experience and education are lists of strings
+        resume_json['skills'] = ensure_list_of_strings(resume_json.get('skills', []))
+        resume_json['experience'] = ensure_list_of_strings(resume_json.get('experience', []))
+        resume_json['education'] = ensure_list_of_strings(resume_json.get('education', []))
+        
         resume_data = ResumeData(**resume_json)
 
         job_prompt = load_prompt("parse_job.txt", job_description=request.job_description)
         job_json = json.loads(get_completion(job_prompt, json_mode=True))
+        
+        # Also ensure job data lists are strings
+        job_json['required_skills'] = ensure_list_of_strings(job_json.get('required_skills', []))
+        job_json['preferred_skills'] = ensure_list_of_strings(job_json.get('preferred_skills', []))
+        job_json['responsibilities'] = ensure_list_of_strings(job_json.get('responsibilities', []))
+        
         job_data = JobData(**job_json)
 
         # 2. Match Score (Deterministic via Embeddings)

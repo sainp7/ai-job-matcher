@@ -19,8 +19,44 @@ function App() {
   const [resumeText, setResumeText] = useState('');
   const [jobDescription, setJobDescription] = useState('');
   const [loading, setLoading] = useState(false);
+  const [parsing, setParsing] = useState(false);
+  const [fileName, setFileName] = useState('');
   const [result, setResult] = useState<AnalysisResult | null>(null);
   const [error, setError] = useState('');
+
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setFileName(file.name);
+    setParsing(true);
+    setError('');
+
+    const formData = new FormData();
+    formData.append('file', file);
+
+    try {
+      const response = await fetch('http://localhost:8000/parse-resume', {
+        method: 'POST',
+        body: formData,
+      });
+
+      if (!response.ok) {
+        const errData = await response.json();
+        throw new Error(errData.detail || 'Failed to parse resume');
+      }
+
+      const data = await response.json();
+      setResumeText(data.text);
+    } catch (err: any) {
+      setError(err.message || 'Error parsing file.');
+      setFileName('');
+      // Reset the input value so the same file can be selected again
+      e.target.value = '';
+    } finally {
+      setParsing(false);
+    }
+  };
 
   const handleAnalyze = async () => {
     if (!resumeText.trim() || !jobDescription.trim()) {
@@ -67,16 +103,43 @@ function App() {
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">Resume Text</label>
+            <div className="flex justify-between items-end mb-2">
+              <label className="block text-sm font-medium text-gray-700">Resume Text</label>
+              <div className="text-xs text-gray-500">Paste text or upload PDF/DOCX/ODT</div>
+            </div>
             <textarea
-              className="w-full h-64 p-3 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"
+              className={`w-full h-64 p-3 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 ${parsing ? 'bg-gray-50 opacity-50' : ''}`}
               placeholder="Paste your resume here..."
               value={resumeText}
               onChange={(e) => setResumeText(e.target.value)}
+              disabled={parsing}
             />
+            <div className="mt-2">
+              <input
+                type="file"
+                accept=".pdf,.docx,.odt"
+                onChange={handleFileUpload}
+                className="hidden"
+                id="resume-upload"
+              />
+              <label
+                htmlFor="resume-upload"
+                className={`inline-flex items-center px-4 py-2 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 cursor-pointer ${parsing ? 'opacity-50 cursor-not-allowed' : ''}`}
+              >
+                {parsing ? 'Parsing...' : fileName ? `Change File (${fileName})` : 'Upload Resume File'}
+              </label>
+              {fileName && !parsing && (
+                <button 
+                  onClick={() => { setFileName(''); setResumeText(''); }}
+                  className="ml-3 text-sm text-red-600 hover:text-red-800"
+                >
+                  Clear
+                </button>
+              )}
+            </div>
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">Job Description</label>
+            <label className="block text-sm font-medium text-gray-700 mb-2 mt-7 md:mt-0">Job Description</label>
             <textarea
               className="w-full h-64 p-3 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"
               placeholder="Paste the job description here..."

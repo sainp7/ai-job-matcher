@@ -1,6 +1,10 @@
 You are a data extractor.
 Extract the required_skills, preferred_skills, and responsibilities from the following job description.
 
+- "required_skills": A list of essential technical skills (strings)
+- "preferred_skills": A list of nice-to-have skills or certifications (strings)
+- "responsibilities": A list of plain text strings, where each string is a single job duty or requirement. Do NOT use objects or dictionaries.
+
 Job Description:
 {{job_description}}
 
