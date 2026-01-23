@@ -1,4 +1,6 @@
 import { useState } from 'react';
+import { toPng } from 'html-to-image';
+import jsPDF from 'jspdf';
 
 interface AnalysisResult {
   match_score: number;
@@ -13,6 +15,9 @@ interface AnalysisResult {
     };
   };
   summary: string[];
+  candidate_name?: string | null;
+  company_name?: string | null;
+  job_role?: string | null;
 }
 
 function App() {
@@ -23,6 +28,7 @@ function App() {
   const [fileName, setFileName] = useState('');
   const [result, setResult] = useState<AnalysisResult | null>(null);
   const [error, setError] = useState('');
+  const [generatingPdf, setGeneratingPdf] = useState(false);
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -94,6 +100,60 @@ function App() {
     }
   };
 
+  const handleDownloadPdf = async () => {
+    const reportElement = document.getElementById('report-root');
+    if (!reportElement) {
+      setError('Report content not found.');
+      return;
+    }
+
+    setGeneratingPdf(true);
+    setError('');
+
+    try {
+      const width = reportElement.offsetWidth;
+      const height = reportElement.offsetHeight;
+
+      const imgData = await toPng(reportElement, {
+        pixelRatio: 2, // Higher quality
+        backgroundColor: '#f9fafb', // Match bg-gray-50
+        cacheBust: true,
+      });
+      
+      const pdf = new jsPDF({
+        orientation: 'portrait',
+        unit: 'px',
+        format: [width, height],
+      });
+
+      pdf.addImage(imgData, 'PNG', 0, 0, width, height);
+      
+      const websiteName = 'ai-resume-job-matcher';
+      const sanitize = (str: string) => str.trim().toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '').replace(/-+/g, '-').replace(/^-+|-+$/g, '');
+
+      let baseName = '';
+      if (result?.candidate_name) {
+        const parts = [result.candidate_name, result.company_name, result.job_role]
+          .filter((p): p is string => !!p)
+          .map(sanitize)
+          .filter(p => p !== '');
+        baseName = parts.join('-');
+      }
+
+      if (!baseName) {
+        const randomStr = Math.random().toString(36).substring(2, 8);
+        baseName = `${websiteName}-${randomStr}`;
+      }
+
+      pdf.save(`${baseName}.pdf`);
+    } catch (err: any) {
+      console.error('PDF generation error:', err);
+      setError('Failed to generate PDF. Please try again.');
+    } finally {
+      setGeneratingPdf(false);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-gray-50 py-12 px-4 sm:px-6 lg:px-8">
       <div className="max-w-4xl mx-auto">
@@ -149,6 +209,7 @@ function App() {
           </div>
         </div>
 
+
         <div className="flex justify-center mb-8">
           <button
             onClick={handleAnalyze}
@@ -167,7 +228,27 @@ function App() {
 
         {result && (
           <div className="space-y-8">
-            <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200">
+            <div className="flex justify-end">
+              <button
+                onClick={handleDownloadPdf}
+                disabled={generatingPdf}
+                className={`px-6 py-2 bg-green-600 text-white font-medium rounded-md shadow-sm hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 ${generatingPdf ? 'opacity-50 cursor-not-allowed' : ''}`}
+              >
+                {generatingPdf ? 'Generating PDF...' : 'Download PDF'}
+              </button>
+            </div>
+
+            <div id="report-root" className="space-y-8 bg-gray-50 p-4 rounded-lg">
+              <h2 className="text-3xl font-bold text-gray-900 text-center mb-8">Analysis Report</h2>
+              {(result.candidate_name || result.company_name || result.job_role) && (
+                <div className="text-center mb-8 bg-white p-6 rounded-lg shadow-sm border border-gray-200">
+                  {result.candidate_name && <h2 className="text-2xl font-bold text-gray-900">{result.candidate_name}</h2>}
+                  <p className="text-gray-600">
+                    {result.job_role} {result.job_role && result.company_name && 'at'} {result.company_name}
+                  </p>
+                </div>
+              )}
+              <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200">
               <h2 className="text-xl font-bold text-gray-800 mb-4">Match Score</h2>
               <div className="flex items-center">
                 <div className="text-5xl font-extrabold text-blue-600">{result.match_score}%</div>
@@ -234,7 +315,8 @@ function App() {
               </div>
             </div>
           </div>
-        )}
+        </div>
+      )}
       </div>
     </div>
   );

@@ -1,6 +1,7 @@
 You are a data extractor. 
-Extract the skills, experience, and education from the following resume text.
+Extract the candidate name, skills, experience, and education from the following resume text.
 
+- "candidate_name": The full name of the candidate (string), or null if not found.
 - "skills": A list of technical skills (strings)
 - "experience": A list of plain text strings, where each string is a single bullet point or responsibility. Do NOT use objects or dictionaries.
 - "education": A list of plain text strings, where each string represents a degree, certification, or institution. Do NOT use objects or dictionaries.
@@ -10,6 +11,7 @@ Resume:
 
 Return strictly in JSON:
 {
+  "candidate_name": null,
   "skills": [],
   "experience": [],
   "education": []

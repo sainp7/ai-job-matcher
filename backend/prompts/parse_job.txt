@@ -1,6 +1,8 @@
 You are a data extractor.
-Extract the required_skills, preferred_skills, and responsibilities from the following job description.
+Extract the company name, job role, required_skills, preferred_skills, and responsibilities from the following job description.
 
+- "company_name": The name of the company (string), or null if not found.
+- "job_role": The title of the job position (string), or null if not found.
 - "required_skills": A list of essential technical skills (strings)
 - "preferred_skills": A list of nice-to-have skills or certifications (strings)
 - "responsibilities": A list of plain text strings, where each string is a single job duty or requirement. Do NOT use objects or dictionaries.
@@ -10,6 +12,8 @@ Job Description:
 
 Return strictly in JSON:
 {
+  "company_name": null,
+  "job_role": null,
   "required_skills": [],
   "preferred_skills": [],
   "responsibilities": []

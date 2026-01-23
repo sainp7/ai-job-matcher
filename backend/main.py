@@ -2,7 +2,7 @@ import os
 import json
 import io
 import numpy as np
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 from fastapi import FastAPI, HTTPException, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -36,11 +36,14 @@ class AnalyzeRequest(BaseModel):
     job_description: str
 
 class ResumeData(BaseModel):
+    candidate_name: Optional[str] = None
     skills: List[str]
     experience: List[str]
     education: List[str]
 
 class JobData(BaseModel):
+    company_name: Optional[str] = None
+    job_role: Optional[str] = None
     required_skills: List[str]
     preferred_skills: List[str]
     responsibilities: List[str]
@@ -52,6 +55,9 @@ class AnalyzeResponse(BaseModel):
     improved_bullets: List[str]
     ats_keywords: Dict[str, Any]
     summary: List[str]
+    candidate_name: Optional[str] = None
+    company_name: Optional[str] = None
+    job_role: Optional[str] = None
 
 # Utils
 def load_prompt(filename: str, **kwargs) -> str:
@@ -286,7 +292,10 @@ async def analyze(request: AnalyzeRequest):
             missing_skills=gap_data.get("missing_skills", []),
             improved_bullets=improved_bullets,
             ats_keywords=ats_keywords,
-            summary=summary[:4] # Strictly 4 points
+            summary=summary[:4], # Strictly 4 points
+            candidate_name=resume_data.candidate_name,
+            company_name=job_data.company_name,
+            job_role=job_data.job_role
         )
 
     except Exception as e:
