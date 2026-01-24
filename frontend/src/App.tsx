@@ -1,6 +1,6 @@
 import { useState } from 'react';
-import { toPng } from 'html-to-image';
-import jsPDF from 'jspdf';
+import { pdf } from '@react-pdf/renderer';
+import { AnalysisReportPDF } from './AnalysisReportPDF';
 
 interface AnalysisResult {
   match_score: number;
@@ -54,8 +54,8 @@ function App() {
 
       const data = await response.json();
       setResumeText(data.text);
-    } catch (err: any) {
-      setError(err.message || 'Error parsing file.');
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Error parsing file.');
       setFileName('');
       // Reset the input value so the same file can be selected again
       e.target.value = '';
@@ -93,40 +93,22 @@ function App() {
 
       const data = await response.json();
       setResult(data);
-    } catch (err: any) {
-      setError(err.message || 'An error occurred during analysis.');
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'An error occurred during analysis.');
     } finally {
       setLoading(false);
     }
   };
 
   const handleDownloadPdf = async () => {
-    const reportElement = document.getElementById('report-root');
-    if (!reportElement) {
-      setError('Report content not found.');
-      return;
-    }
+    if (!result) return;
 
     setGeneratingPdf(true);
     setError('');
 
     try {
-      const width = reportElement.offsetWidth;
-      const height = reportElement.offsetHeight;
-
-      const imgData = await toPng(reportElement, {
-        pixelRatio: 2, // Higher quality
-        backgroundColor: '#f9fafb', // Match bg-gray-50
-        cacheBust: true,
-      });
-      
-      const pdf = new jsPDF({
-        orientation: 'portrait',
-        unit: 'px',
-        format: [width, height],
-      });
-
-      pdf.addImage(imgData, 'PNG', 0, 0, width, height);
+      const blob = await pdf(<AnalysisReportPDF result={result} />).toBlob();
+      const url = URL.createObjectURL(blob);
       
       const websiteName = 'ai-resume-job-matcher';
       const sanitize = (str: string) => str.trim().toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '').replace(/-+/g, '-').replace(/^-+|-+$/g, '');
@@ -145,8 +127,13 @@ function App() {
         baseName = `${websiteName}-${randomStr}`;
       }
 
-      pdf.save(`${baseName}.pdf`);
-    } catch (err: any) {
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `${baseName}.pdf`;
+      link.click();
+      
+      URL.revokeObjectURL(url);
+    } catch (err: unknown) {
       console.error('PDF generation error:', err);
       setError('Failed to generate PDF. Please try again.');
     } finally {
@@ -156,7 +143,7 @@ function App() {
 
   return (
     <div className="min-h-screen bg-gray-50 py-12 px-4 sm:px-6 lg:px-8">
-      <div className="max-w-4xl mx-auto">
+      <div className="mx-auto">
         <h1 className="text-3xl font-bold text-center text-gray-900 mb-8">
           AI Resume & Job Matcher
         </h1>
@@ -168,7 +155,7 @@ function App() {
               <div className="text-xs text-gray-500">Paste text or upload PDF/DOCX/ODT</div>
             </div>
             <textarea
-              className={`w-full h-64 p-3 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 ${parsing ? 'bg-gray-50 opacity-50' : ''}`}
+              className={`w-full h-96 p-3 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 ${parsing ? 'bg-gray-50 opacity-50' : ''}`}
               placeholder="Paste your resume here..."
               value={resumeText}
               onChange={(e) => setResumeText(e.target.value)}
@@ -201,7 +188,7 @@ function App() {
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2 mt-7 md:mt-0">Job Description</label>
             <textarea
-              className="w-full h-64 p-3 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"
+              className="w-full h-96 p-3 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"
               placeholder="Paste the job description here..."
               value={jobDescription}
               onChange={(e) => setJobDescription(e.target.value)}
