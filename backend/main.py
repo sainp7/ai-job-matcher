@@ -232,6 +232,63 @@ async def parse_resume(file: UploadFile = File(...)):
         print(f"Parsing error: {e}")
         raise HTTPException(status_code=500, detail="Internal server error during parsing")
 
+@app.post("/parse-jd", response_model=ParseResponse)
+async def parse_jd(file: UploadFile = File(...)):
+    filename = file.filename.lower()
+    content_type = file.content_type
+    
+    try:
+        content = await file.read()
+        if not content:
+            raise HTTPException(status_code=400, detail="Empty file")
+
+        extracted_text = ""
+        
+        if filename.endswith(".pdf") or content_type == "application/pdf":
+            try:
+                with pdfplumber.open(io.BytesIO(content)) as pdf:
+                    for page in pdf.pages:
+                        page_text = page.extract_text()
+                        if page_text:
+                            extracted_text += page_text + "\n"
+            except Exception as e:
+                print(f"pdfplumber error: {e}")
+                raise HTTPException(status_code=400, detail="Unreadable JD PDF document")
+            
+            if len(extracted_text.strip()) < 50:
+                 raise HTTPException(status_code=400, detail="This JD PDF appears to be a scanned image or has very little text. Please upload a text-based PDF or paste text manually.")
+
+        elif filename.endswith(".docx") or content_type == "application/vnd.openxmlformats-officedocument.wordprocessingml.document":
+            try:
+                doc = docx.Document(io.BytesIO(content))
+                extracted_text = "\n".join([para.text for para in doc.paragraphs])
+            except Exception as e:
+                print(f"python-docx error: {e}")
+                raise HTTPException(status_code=400, detail="Unreadable JD DOCX document")
+            
+        elif filename.endswith(".odt") or content_type == "application/vnd.oasis.opendocument.text":
+            try:
+                odt_doc = load(io.BytesIO(content))
+                paragraphs = odt_doc.getElementsByType(text.P)
+                extracted_text = "\n".join([teletype.extractText(p) for p in paragraphs])
+            except Exception as e:
+                print(f"odfpy error: {e}")
+                raise HTTPException(status_code=400, detail="Unreadable JD ODT document")
+            
+        else:
+            raise HTTPException(status_code=400, detail="Unsupported JD file type. Please upload a PDF, DOCX, or ODT file.")
+
+        if not extracted_text.strip():
+            raise HTTPException(status_code=400, detail="Could not extract text from the JD document.")
+
+        return ParseResponse(text=normalize_text(extracted_text))
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"JD Parsing error: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error during JD parsing")
+
 @app.post("/analyze", response_model=AnalyzeResponse)
 async def analyze(request: AnalyzeRequest):
     if not request.resume_text.strip() or not request.job_description.strip():
