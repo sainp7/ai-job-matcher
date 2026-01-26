@@ -10,7 +10,7 @@ Thumbs.db
 
 # Python / Backend
 backend/venv/
-backend/.env
+.env
 backend/__pycache__/
 backend/*.pyc
 backend/*.pyo
@@ -34,5 +34,4 @@ frontend/yarn-error.log*
 frontend/.eslintcache
 
 # General
-.env
 *.log

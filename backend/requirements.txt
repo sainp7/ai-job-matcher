@@ -8,3 +8,4 @@ python-dotenv
 pdfplumber
 python-docx
 odfpy
+gunicorn
