@@ -21,44 +21,78 @@ This is an AI-powered platform that analyzes a resume against a job description 
 
 ## Getting Started
 
-### Prerequisites
+### 1. Docker Setup (Recommended)
 
+The easiest way to get the project running is using Docker Compose.
+
+**Prerequisites:**
+- Docker and Docker Compose installed.
+
+1. Create a `.env` file in the root directory:
+   ```bash
+   OPENAI_API_KEY=your_api_key_here
+   ```
+
+2. Start the services:
+   ```bash
+   docker compose up --build
+   ```
+
+The application will be available at `http://localhost`.
+
+---
+
+### 2. Manual Setup (Alternative)
+
+If you prefer to run the project without Docker, follow these steps.
+
+**Prerequisites:**
 - Python 3.9+
 - Node.js 18+
 - OpenAI API Key
 
-### 1. Setup Backend
+#### Setup Backend
 
-```bash
-cd backend
-python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
-pip install -r requirements.txt
-```
+1. Navigate to the backend directory:
+   ```bash
+   cd backend
+   ```
 
-Create a `.env` file in the `backend` directory:
-```
-OPENAI_API_KEY=your_api_key_here
-```
+2. Setup virtual environment and install dependencies:
+   ```bash
+   python -m venv venv
+   source venv/bin/activate  # On Windows: venv\Scripts\activate
+   pip install -r requirements.txt
+   ```
 
-Run the backend:
-```bash
-python main.py
-```
+3. Create a `.env` file in the `backend` directory:
+   ```
+   OPENAI_API_KEY=your_api_key_here
+   ```
+
+4. Run the backend:
+   ```bash
+   python main.py
+   ```
 The API will be available at `http://localhost:8000`.
 
-### 2. Setup Frontend
+#### Setup Frontend
 
-```bash
-cd frontend
-npm install
-npm run dev
-```
+1. Navigate to the frontend directory:
+   ```bash
+   cd frontend
+   ```
+
+2. Install dependencies and run:
+   ```bash
+   npm install
+   npm run dev
+   ```
 The app will be available at `http://localhost:5173`.
 
 ## Usage
 
 1. Paste your resume text into the "Resume Text" area **OR** upload a resume file (.pdf, .docx, .odt).
-2. Paste the job description into the "Job Description" area.
+2. Paste the job description into the "Job Description" area **OR** upload a resume file (.pdf, .docx, .odt).
 3. Click **Analyze Fit**.
 4. View your match score and detailed analysis.
