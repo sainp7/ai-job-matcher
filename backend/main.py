@@ -1,12 +1,14 @@
 import os
 import json
 import io
+import asyncio
+
 import numpy as np
 from typing import List, Dict, Any, Optional
 from fastapi import FastAPI, HTTPException, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from openai import OpenAI
+from openai import AsyncOpenAI
 from dotenv import load_dotenv
 
 import pdfplumber
@@ -25,7 +27,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+client = AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 # Models
 class ParseResponse(BaseModel):
@@ -71,8 +73,8 @@ def load_prompt(filename: str, **kwargs) -> str:
         prompt = prompt.replace(f"{{{{{key}}}}}", str(value))
     return prompt
 
-def get_completion(prompt: str, json_mode: bool = False) -> str:
-    response = client.chat.completions.create(
+async def get_completion(prompt: str, json_mode: bool = False) -> str:
+    response = await client.chat.completions.create(
         model="gpt-4o-mini",
         messages=[{"role": "user", "content": prompt}],
         temperature=0.2,
@@ -80,30 +82,31 @@ def get_completion(prompt: str, json_mode: bool = False) -> str:
     )
     return response.choices[0].message.content
 
-def get_embeddings(texts: List[str]) -> List[List[float]]:
+async def get_embeddings(texts: List[str]) -> List[List[float]]:
     if not texts:
         return []
     # OpenAI supports up to 2048 inputs per request for embeddings
-    response = client.embeddings.create(
+    response = await client.embeddings.create(
         input=texts,
         model="text-embedding-3-small"
     )
     return [d.embedding for d in response.data]
 
-def get_embedding(text: str) -> List[float]:
-    return get_embeddings([text])[0]
+async def get_embedding(text: str) -> List[float]:
+    res = await get_embeddings([text])
+    return res[0]
 
 def cosine_similarity(a, b):
     return np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b))
 
-def calculate_score(resume_skills: List[str], job_data: JobData) -> int:
+async def calculate_score(resume_skills: List[str], job_data: JobData) -> int:
     if not resume_skills:
         return 0
     if not job_data.required_skills and not job_data.preferred_skills:
         return 0
 
     # Step 1: Generate all embeddings in batches
-    resume_embs = get_embeddings(resume_skills)
+    resume_embs = await get_embeddings(resume_skills)
     
     # Helper for BestMatchScore
     def get_best_match(job_skill_emb, res_embs):
@@ -115,7 +118,7 @@ def calculate_score(resume_skills: List[str], job_data: JobData) -> int:
     # Step 2-4: Required Skills
     req_score = 0.0
     if job_data.required_skills:
-        req_embs = get_embeddings(job_data.required_skills)
+        req_embs = await get_embeddings(job_data.required_skills)
         req_best_matches = [get_best_match(emb, resume_embs) for emb in req_embs]
         
         # Step 3: Coverage (Threshold >= 0.55)
@@ -134,12 +137,11 @@ def calculate_score(resume_skills: List[str], job_data: JobData) -> int:
     # Step 5: Preferred Skills
     pref_strength = 0.0
     if job_data.preferred_skills:
-        pref_embs = get_embeddings(job_data.preferred_skills)
+        pref_embs = await get_embeddings(job_data.preferred_skills)
         pref_best_matches = [get_best_match(emb, resume_embs) for emb in pref_embs]
         pref_strength = np.mean(pref_best_matches) if pref_best_matches else 0.0
     else:
         # If no preferred skills, we match it to req_score so it doesn't affect the weighted average
-        # Or just use req_score as the final score later.
         pref_strength = req_score
 
     # Step 6: Final Weighted Score
@@ -293,11 +295,17 @@ async def parse_jd(file: UploadFile = File(...)):
 async def analyze(request: AnalyzeRequest):
     if not request.resume_text.strip() or not request.job_description.strip():
         raise HTTPException(status_code=400, detail="Resume and Job Description are required")
-
     try:
-        # 1. Parse Data
+        # 1. Parse Data (Phase 1 Parallel)
         resume_prompt = load_prompt("parse_resume.txt", resume_text=request.resume_text)
-        resume_json = json.loads(get_completion(resume_prompt, json_mode=True))
+        job_prompt = load_prompt("parse_job.txt", job_description=request.job_description)
+        
+        resume_raw, job_raw = await asyncio.gather(
+            get_completion(resume_prompt, json_mode=True),
+            get_completion(job_prompt, json_mode=True)
+        )
+        
+        resume_json = json.loads(resume_raw)
         
         # Ensure experience and education are lists of strings
         resume_json['skills'] = ensure_list_of_strings(resume_json.get('skills', []))
@@ -306,8 +314,7 @@ async def analyze(request: AnalyzeRequest):
         
         resume_data = ResumeData(**resume_json)
 
-        job_prompt = load_prompt("parse_job.txt", job_description=request.job_description)
-        job_json = json.loads(get_completion(job_prompt, json_mode=True))
+        job_json = json.loads(job_raw)
         
         # Also ensure job data lists are strings
         job_json['required_skills'] = ensure_list_of_strings(job_json.get('required_skills', []))
@@ -317,30 +324,36 @@ async def analyze(request: AnalyzeRequest):
         job_data = JobData(**job_json)
 
         # 2. Match Score (Deterministic via Embeddings)
-        match_score = calculate_score(resume_data.skills, job_data)
+        match_score = await calculate_score(resume_data.skills, job_data)
 
-        # 3. Skill Gap Analysis
+        # 3-6. Analysis (Phase 2 Parallel)
         gap_prompt = load_prompt("skill_gap.txt", skills=resume_data.skills, job_requirements=job_data.required_skills)
-        gap_data = json.loads(get_completion(gap_prompt, json_mode=True))
-
-        # 4. Resume Rewrite
         rewrite_prompt = load_prompt("resume_rewrite.txt", bullets=resume_data.experience, job_description=request.job_description)
-        improved_bullets_raw = get_completion(rewrite_prompt)
-        # Expecting a list from the prompt instruction
-        try:
-            improved_bullets = json.loads(improved_bullets_raw)
-            if not isinstance(improved_bullets, list):
-                improved_bullets = [improved_bullets_raw]
-        except:
-            improved_bullets = [b.strip("- ") for b in improved_bullets_raw.split("\n") if b.strip()]
-
-        # 5. ATS Keywords
         ats_prompt = load_prompt("ats_keywords.txt", job_description=request.job_description, resume_text=request.resume_text)
-        ats_keywords = json.loads(get_completion(ats_prompt, json_mode=True))
-
-        # 6. Final Summary
         summary_prompt = load_prompt("final_summary.txt", resume_text=request.resume_text, job_description=request.job_description)
-        summary_raw = get_completion(summary_prompt)
+        
+        gap_raw, rewrite_raw, ats_raw, summary_raw = await asyncio.gather(
+            get_completion(gap_prompt, json_mode=True),
+            get_completion(rewrite_prompt),
+            get_completion(ats_prompt, json_mode=True),
+            get_completion(summary_prompt)
+        )
+
+        
+        gap_data = json.loads(gap_raw)
+
+        # Improved Bullets
+        try:
+            improved_bullets = json.loads(rewrite_raw)
+            if not isinstance(improved_bullets, list):
+                improved_bullets = [rewrite_raw]
+        except:
+            improved_bullets = [b.strip("- ") for b in rewrite_raw.split("\n") if b.strip()]
+
+        # ATS Keywords
+        ats_keywords = json.loads(ats_raw)
+
+        # Final Summary
         summary = [s.strip("- ") for s in summary_raw.split("\n") if s.strip()]
 
         return AnalyzeResponse(
