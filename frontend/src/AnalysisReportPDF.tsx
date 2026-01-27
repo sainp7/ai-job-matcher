@@ -16,6 +16,7 @@ interface AnalysisResult {
   candidate_name?: string | null;
   company_name?: string | null;
   job_role?: string | null;
+  pitch?: string | null;
 }
 
 const styles = StyleSheet.create({
@@ -114,6 +115,9 @@ const styles = StyleSheet.create({
     fontSize: 13,
     marginTop: 5,
     marginBottom: 3,
+  },
+  pitchText: {
+    lineHeight: 1.5,
   }
 });
 
@@ -207,6 +211,13 @@ export const AnalysisReportPDF = ({ result }: { result: AnalysisResult }) => (
           </View>
         </View>
       </View>
+
+      {result.pitch && (
+        <View style={styles.section} break>
+          <Text style={styles.sectionTitle}>Job-Specific Personal Pitch</Text>
+          <Text style={styles.pitchText}>{result.pitch}</Text>
+        </View>
+      )}
     </Page>
   </Document>
 );

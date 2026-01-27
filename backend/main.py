@@ -61,6 +61,19 @@ class AnalyzeResponse(BaseModel):
     company_name: Optional[str] = None
     job_role: Optional[str] = None
 
+class PitchRequest(BaseModel):
+    resume_text: str
+    job_description: str
+    match_score: int
+    skill_overlap: List[str]
+    length: str # "short" | "extended"
+    tone: str # "formal" | "casual"
+    job_role: Optional[str] = None
+    company_name: Optional[str] = None
+
+class PitchResponse(BaseModel):
+    pitch: str
+
 # Utils
 def load_prompt(filename: str, **kwargs) -> str:
     path = os.path.join("backend/prompts", filename)
@@ -370,6 +383,43 @@ async def analyze(request: AnalyzeRequest):
 
     except Exception as e:
         print(f"Error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/generate-pitch", response_model=PitchResponse)
+async def generate_pitch(request: PitchRequest):
+    try:
+        # Enforce Tone Rules: If length is "extended", tone is formal
+        effective_tone = request.tone
+        if request.length == "extended":
+            effective_tone = "formal"
+        
+        # Mapping for Prompt
+        length_mapping = {
+            "short": "3-5 concise sentences",
+            "extended": "Structured, up to one page"
+        }
+        tone_mapping = {
+            "formal": "Professional, direct",
+            "casual": "Conversational, but respectful"
+        }
+
+        prompt = load_prompt(
+            "personal_pitch.txt",
+            resume_highlights=request.resume_text[:2000], # Limit to avoid token issues
+            job_description=request.job_description[:2000],
+            job_role=request.job_role or "Target Role",
+            company_name=request.company_name or "Target Company",
+            skill_overlap=", ".join(request.skill_overlap),
+            match_score=request.match_score,
+            length=length_mapping.get(request.length, request.length),
+            tone=tone_mapping.get(effective_tone, effective_tone)
+        )
+
+        pitch = await get_completion(prompt)
+        return PitchResponse(pitch=pitch.strip())
+
+    except Exception as e:
+        print(f"Pitch generation error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 if __name__ == "__main__":

@@ -18,6 +18,7 @@ interface AnalysisResult {
   candidate_name?: string | null;
   company_name?: string | null;
   job_role?: string | null;
+  pitch?: string | null;
 }
 
 function App() {
@@ -31,6 +32,19 @@ function App() {
   const [result, setResult] = useState<AnalysisResult | null>(null);
   const [error, setError] = useState('');
   const [generatingPdf, setGeneratingPdf] = useState(false);
+  
+  const [pitch, setPitch] = useState('');
+  const [pitchLength, setPitchLength] = useState<'short' | 'extended'>('short');
+  const [pitchTone, setPitchTone] = useState<'formal' | 'casual'>('formal');
+  const [generatingPitch, setGeneratingPitch] = useState(false);
+  const [pitchError, setPitchError] = useState('');
+
+  const handlePitchLengthChange = (length: 'short' | 'extended') => {
+    setPitchLength(length);
+    if (length === 'extended') {
+      setPitchTone('formal');
+    }
+  };
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -109,6 +123,8 @@ function App() {
     setLoading(true);
     setError('');
     setResult(null);
+    setPitch('');
+    setPitchError('');
 
     try {
       const response = await fetch('http://localhost:8000/analyze', {
@@ -136,6 +152,44 @@ function App() {
     }
   };
 
+  const handleGeneratePitch = async () => {
+    if (!result) return;
+
+    setGeneratingPitch(true);
+    setPitchError('');
+    
+    try {
+      const response = await fetch('http://localhost:8000/generate-pitch', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          resume_text: resumeText,
+          job_description: jobDescription,
+          match_score: result.match_score,
+          skill_overlap: result.skill_overlap,
+          length: pitchLength,
+          tone: pitchTone,
+          job_role: result.job_role,
+          company_name: result.company_name,
+        }),
+      });
+
+      if (!response.ok) {
+        const errData = await response.json();
+        throw new Error(errData.detail || 'Failed to generate pitch');
+      }
+
+      const data = await response.json();
+      setPitch(data.pitch);
+    } catch (err: unknown) {
+      setPitchError(err instanceof Error ? err.message : 'An error occurred during pitch generation.');
+    } finally {
+      setGeneratingPitch(false);
+    }
+  };
+
   const handleDownloadPdf = async () => {
     if (!result) return;
 
@@ -143,7 +197,11 @@ function App() {
     setError('');
 
     try {
-      const blob = await pdf(<AnalysisReportPDF result={result} />).toBlob();
+      const reportWithPitch = {
+        ...result,
+        pitch: pitch || null
+      };
+      const blob = await pdf(<AnalysisReportPDF result={reportWithPitch} />).toBlob();
       const url = URL.createObjectURL(blob);
       
       const websiteName = 'ai-resume-job-matcher';
@@ -278,16 +336,6 @@ function App() {
 
         {result && (
           <div className="space-y-8">
-            <div className="flex justify-end">
-              <button
-                onClick={handleDownloadPdf}
-                disabled={generatingPdf}
-                className={`px-6 py-2 bg-green-600 text-white font-medium rounded-md shadow-sm hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 ${generatingPdf ? 'opacity-50 cursor-not-allowed' : ''}`}
-              >
-                {generatingPdf ? 'Generating PDF...' : 'Download PDF'}
-              </button>
-            </div>
-
             <div id="report-root" className="space-y-8 bg-gray-50 p-4 rounded-lg">
               <h2 className="text-3xl font-bold text-gray-900 text-center mb-8">Analysis Report</h2>
               {(result.candidate_name || result.company_name || result.job_role) && (
@@ -364,6 +412,84 @@ function App() {
                 </div>
               </div>
             </div>
+          </div>
+
+          <div className="bg-white p-8 rounded-lg shadow-sm border border-gray-200 mt-8">
+            <h2 className="text-xl font-bold text-gray-800 mb-6">Job-Specific Personal Pitch</h2>
+            
+            <div className="flex flex-wrap items-center gap-x-12 gap-y-6 mb-8">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-3">Message Length</label>
+                <div className="flex items-center space-x-3">
+                  <span className={`text-xs font-semibold uppercase tracking-wider ${pitchLength === 'short' ? 'text-blue-600' : 'text-gray-400'}`}>Short</span>
+                  <button
+                    onClick={() => handlePitchLengthChange(pitchLength === 'short' ? 'extended' : 'short')}
+                    className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${pitchLength === 'extended' ? 'bg-blue-600' : 'bg-gray-200'}`}
+                  >
+                    <span
+                      className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${pitchLength === 'extended' ? 'translate-x-6' : 'translate-x-1'}`}
+                    />
+                  </button>
+                  <span className={`text-xs font-semibold uppercase tracking-wider ${pitchLength === 'extended' ? 'text-blue-600' : 'text-gray-400'}`}>Extended</span>
+                </div>
+              </div>
+
+              <div className="relative">
+                <label className="block text-sm font-medium text-gray-700 mb-3">Tone</label>
+                <div className={`flex items-center space-x-3 ${pitchLength === 'extended' ? 'opacity-50' : ''}`}>
+                  <span className={`text-xs font-semibold uppercase tracking-wider ${pitchTone === 'formal' ? 'text-blue-600' : 'text-gray-400'}`}>Formal</span>
+                  <button
+                    onClick={() => setPitchTone(pitchTone === 'formal' ? 'casual' : 'formal')}
+                    disabled={pitchLength === 'extended'}
+                    className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${pitchTone === 'casual' ? 'bg-blue-600' : 'bg-gray-200'} ${pitchLength === 'extended' ? 'cursor-not-allowed' : ''}`}
+                  >
+                    <span
+                      className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${pitchTone === 'casual' ? 'translate-x-6' : 'translate-x-1'}`}
+                    />
+                  </button>
+                  <span className={`text-xs font-semibold uppercase tracking-wider ${pitchTone === 'casual' ? 'text-blue-600' : 'text-gray-400'}`}>Casual</span>
+                </div>
+                {pitchLength === 'extended' && (
+                  <p className="absolute top-full mt-1 text-[10px] text-amber-600 font-medium italic whitespace-nowrap">
+                    Extended messages use a professional tone.
+                  </p>
+                )}
+              </div>
+            </div>
+
+            <div className="flex justify-start mb-8">
+              <button
+                onClick={handleGeneratePitch}
+                disabled={generatingPitch}
+                className={`px-8 py-2.5 bg-blue-600 text-white font-semibold rounded-md shadow-sm hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-all ${generatingPitch ? 'opacity-50 cursor-not-allowed' : ''}`}
+              >
+                {generatingPitch ? 'Generating Pitch...' : pitch ? 'Regenerate Pitch' : 'Generate Pitch'}
+              </button>
+            </div>
+
+            {pitchError && (
+              <div className="bg-red-50 border-l-4 border-red-400 p-4 mb-6">
+                <p className="text-red-700 text-sm">{pitchError}</p>
+              </div>
+            )}
+
+            {pitch && (
+              <div className="bg-gray-50 p-4 rounded-md border border-gray-200">
+                <pre className="whitespace-pre-wrap text-gray-700 font-sans text-sm leading-relaxed">
+                  {pitch}
+                </pre>
+              </div>
+            )}
+          </div>
+
+          <div className="flex justify-center mt-8 pb-12">
+            <button
+              onClick={handleDownloadPdf}
+              disabled={generatingPdf}
+              className={`px-6 py-2 bg-green-600 text-white font-medium rounded-md shadow-sm hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 ${generatingPdf ? 'opacity-50 cursor-not-allowed' : ''}`}
+            >
+              {generatingPdf ? 'Generating PDF...' : 'Download PDF Report'}
+            </button>
           </div>
         </div>
       )}

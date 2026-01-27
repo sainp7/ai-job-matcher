@@ -1,0 +1,36 @@
+You are writing a job-specific personal pitch on behalf of a candidate.
+
+Context:
+- Resume highlights:
+{{resume_highlights}}
+
+- Job description:
+{{job_description}}
+
+- Role: {{job_role}}
+- Company: {{company_name}}
+
+- Strong skill matches:
+{{skill_overlap}}
+
+- Overall match score: {{match_score}}%
+
+Length:
+{{length}}
+
+Tone:
+{{tone}}
+
+Instructions:
+- Write a job-specific personal pitch
+- Do NOT repeat resume bullets
+- Reference 1–2 relevant skills or experiences
+- Explain interest in THIS role and company
+- Be honest and grounded in provided data
+- Avoid buzzwords and generic motivation
+- Do NOT invent company facts. If the company name is unresolved or generic, use placeholders like [Company Name].
+
+Tone Rules:
+- If length is "extended", use a professional or neutral tone regardless of requested tone
+
+Return only the pitch text.
