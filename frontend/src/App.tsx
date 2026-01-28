@@ -235,6 +235,24 @@ function App() {
     }
   };
 
+  const formatText = (text: string) => {
+    const parts = text.split(/(\*\*.*?\*\*)/g);
+    return parts.map((part, i) => {
+      if (part.startsWith('**') && part.endsWith('**')) {
+        return <strong key={i} className="font-bold">{part.slice(2, -2)}</strong>;
+      }
+      return part;
+    });
+  };
+
+  const renderList = (items: string[]) => (
+    <ul className="list-disc list-inside space-y-2">
+      {items.map((item, i) => (
+        <li key={i} className="text-gray-700">{formatText(item)}</li>
+      ))}
+    </ul>
+  );
+
   return (
     <div className="min-h-screen bg-gray-50 py-12 px-4 sm:px-6 lg:px-8">
       <div className="mx-auto">
@@ -375,20 +393,12 @@ function App() {
 
             <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200">
               <h2 className="text-xl font-bold text-gray-800 mb-4">Summary</h2>
-              <ul className="list-disc list-inside space-y-2">
-                {result.summary.map((point, i) => (
-                  <li key={i} className="text-gray-700">{point}</li>
-                ))}
-              </ul>
+              {renderList(result.summary)}
             </div>
 
             <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200">
               <h2 className="text-xl font-bold text-gray-800 mb-4">Improved Resume Bullets</h2>
-              <ul className="list-disc list-inside space-y-3">
-                {result.improved_bullets.map((bullet, i) => (
-                  <li key={i} className="text-gray-700 leading-relaxed">{bullet}</li>
-                ))}
-              </ul>
+              {renderList(result.improved_bullets)}
             </div>
 
             <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200">

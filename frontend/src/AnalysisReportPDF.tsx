@@ -121,6 +121,20 @@ const styles = StyleSheet.create({
   }
 });
 
+const formatPDFText = (text: string) => {
+  const parts = text.split(/(\*\*.*?\*\*)/g);
+  return parts.map((part, i) => {
+    if (part.startsWith('**') && part.endsWith('**')) {
+      return (
+        <Text key={i} style={{ fontWeight: 'bold' }}>
+          {part.slice(2, -2)}
+        </Text>
+      );
+    }
+    return part;
+  });
+};
+
 export const AnalysisReportPDF = ({ result }: { result: AnalysisResult }) => (
   <Document>
     <Page size="A4" style={styles.page}>
@@ -169,7 +183,7 @@ export const AnalysisReportPDF = ({ result }: { result: AnalysisResult }) => (
         {result.summary.map((point, i) => (
           <View key={i} style={styles.bullet}>
             <Text style={styles.bulletDot}>•</Text>
-            <Text style={styles.bulletText}>{point}</Text>
+            <Text style={styles.bulletText}>{formatPDFText(point)}</Text>
           </View>
         ))}
       </View>
@@ -179,7 +193,7 @@ export const AnalysisReportPDF = ({ result }: { result: AnalysisResult }) => (
         {result.improved_bullets.map((bullet, i) => (
           <View key={i} style={styles.bullet}>
             <Text style={styles.bulletDot}>•</Text>
-            <Text style={styles.bulletText}>{bullet}</Text>
+            <Text style={styles.bulletText}>{formatPDFText(bullet)}</Text>
           </View>
         ))}
       </View>
