@@ -40,6 +40,7 @@ class AnalyzeRequest(BaseModel):
 class ResumeData(BaseModel):
     candidate_name: Optional[str] = None
     skills: List[str]
+    experience_skills: List[str] = []
     experience: List[str]
     education: List[str]
 
@@ -112,53 +113,102 @@ async def get_embedding(text: str) -> List[float]:
 def cosine_similarity(a, b):
     return np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b))
 
-async def calculate_score(resume_skills: List[str], job_data: JobData) -> int:
-    if not resume_skills:
-        return 0
-    if not job_data.required_skills and not job_data.preferred_skills:
-        return 0
-
-    # Step 1: Generate all embeddings in batches
-    resume_embs = await get_embeddings(resume_skills)
+async def calculate_score(skills_list: List[str], experience_skills: List[str], job_data: JobData) -> Dict[str, Any]:
+    if not skills_list and not experience_skills:
+        return {
+            "score": 0,
+            "overlap": [],
+            "missing": job_data.required_skills
+        }
     
-    # Helper for BestMatchScore
-    def get_best_match(job_skill_emb, res_embs):
-        if not res_embs:
-            return 0.0
-        similarities = [cosine_similarity(job_skill_emb, res_emb) for res_emb in res_embs]
-        return max(similarities)
+    if not job_data.required_skills and not job_data.preferred_skills:
+        return {
+            "score": 0,
+            "overlap": [],
+            "missing": []
+        }
+
+    # Combine resume skills and track sources
+    all_resume_skills = []
+    skill_source_map = {}
+    
+    # Skills List (weight 0.8)
+    for s in skills_list:
+        if s not in skill_source_map:
+            all_resume_skills.append(s)
+            skill_source_map[s] = "Skills List"
+            
+    # Experience Skills (weight 1.2, takes priority)
+    for s in experience_skills:
+        if s not in skill_source_map:
+            all_resume_skills.append(s)
+        skill_source_map[s] = "Experience"
+        
+    # Get embeddings for all combined skills
+    resume_embs = await get_embeddings(all_resume_skills)
+    
+    def get_best_match_info(job_skill_emb):
+        best_weighted_sim = 0.0
+        best_source = "Skills List"
+        for i, res_emb in enumerate(resume_embs):
+            sim = cosine_similarity(job_skill_emb, res_emb)
+            source = skill_source_map[all_resume_skills[i]]
+            weight = 1.2 if source == "Experience" else 0.8
+            weighted_sim = sim * weight
+            if weighted_sim > best_weighted_sim:
+                best_weighted_sim = weighted_sim
+                best_source = source
+        
+        classification = "Weak"
+        if best_weighted_sim >= 0.75:
+            classification = "Strong"
+        elif best_weighted_sim >= 0.55:
+            classification = "Partial"
+        return best_weighted_sim, best_source, classification
+
+    overlap_list = []
+    missing_skills = []
 
     # Step 2-4: Required Skills
     req_score = 0.0
     if job_data.required_skills:
         req_embs = await get_embeddings(job_data.required_skills)
-        req_best_matches = [get_best_match(emb, resume_embs) for emb in req_embs]
+        req_matches = [get_best_match_info(emb) for emb in req_embs]
         
-        # Step 3: Coverage (Threshold >= 0.55)
-        matched_required = [m for m in req_best_matches if m >= 0.55]
-        req_coverage = len(matched_required) / len(job_data.required_skills)
+        # Coverage: Weighted Similarity >= 0.55 (Partial or Strong)
+        matched_req = [m for m in req_matches if m[2] != "Weak"]
+        req_coverage = len(matched_req) / len(job_data.required_skills)
         
-        # Step 4: Strength (Mean of matched skills)
-        req_strength = np.mean(matched_required) if matched_required else 0.0
+        # Strength: Mean of Weighted Similarity for matched skills
+        req_strength = np.mean([m[0] for m in matched_req]) if matched_req else 0.0
         
-        # Step 5 (part): Required Score
+        # Required Score = (Coverage * 0.6) + (Strength * 0.4)
         req_score = (req_coverage * 0.6) + (req_strength * 0.4)
+        
+        for i, (sim, source, classification) in enumerate(req_matches):
+            if classification != "Weak":
+                overlap_list.append(f"{job_data.required_skills[i]} → matched via {source} ({classification})")
+            else:
+                missing_skills.append(job_data.required_skills[i])
     else:
-        # If no required skills, we give full marks for this section
         req_score = 1.0
 
     # Step 5: Preferred Skills
     pref_strength = 0.0
     if job_data.preferred_skills:
         pref_embs = await get_embeddings(job_data.preferred_skills)
-        pref_best_matches = [get_best_match(emb, resume_embs) for emb in pref_embs]
-        pref_strength = np.mean(pref_best_matches) if pref_best_matches else 0.0
+        pref_matches = [get_best_match_info(emb) for emb in pref_embs]
+        
+        # Strength: Mean of ALL preferred skills weighted matches
+        pref_strength = np.mean([m[0] for m in pref_matches]) if pref_matches else 0.0
+        
+        for i, (sim, source, classification) in enumerate(pref_matches):
+            if classification != "Weak":
+                overlap_list.append(f"{job_data.preferred_skills[i]} → matched via {source} ({classification})")
     else:
-        # If no preferred skills, we match it to req_score so it doesn't affect the weighted average
         pref_strength = req_score
 
     # Step 6: Final Weighted Score
-    # Weighting: Required 70%, Preferred 30%
     if not job_data.preferred_skills:
         final_score = req_score
     elif not job_data.required_skills:
@@ -166,7 +216,12 @@ async def calculate_score(resume_skills: List[str], job_data: JobData) -> int:
     else:
         final_score = (req_score * 0.7) + (pref_strength * 0.3)
     
-    return int(round(min(max(final_score, 0), 1) * 100))
+    score_int = int(round(min(max(final_score, 0), 1) * 100))
+    return {
+        "score": score_int,
+        "overlap": overlap_list,
+        "missing": missing_skills
+    }
 
 def normalize_text(text: str) -> str:
     # Normalize whitespace
@@ -322,6 +377,7 @@ async def analyze(request: AnalyzeRequest):
         
         # Ensure experience and education are lists of strings
         resume_json['skills'] = ensure_list_of_strings(resume_json.get('skills', []))
+        resume_json['experience_skills'] = ensure_list_of_strings(resume_json.get('experience_skills', []))
         resume_json['experience'] = ensure_list_of_strings(resume_json.get('experience', []))
         resume_json['education'] = ensure_list_of_strings(resume_json.get('education', []))
         
@@ -336,24 +392,22 @@ async def analyze(request: AnalyzeRequest):
         
         job_data = JobData(**job_json)
 
-        # 2. Match Score (Deterministic via Embeddings)
-        match_score = await calculate_score(resume_data.skills, job_data)
+        # 2. Match Score & Skill Overlap (Deterministic via Embeddings)
+        match_result = await calculate_score(resume_data.skills, resume_data.experience_skills, job_data)
+        match_score = match_result["score"]
+        skill_overlap = match_result["overlap"]
+        missing_skills_deterministic = match_result["missing"]
 
         # 3-6. Analysis (Phase 2 Parallel)
-        gap_prompt = load_prompt("skill_gap.txt", skills=resume_data.skills, job_requirements=job_data.required_skills)
         rewrite_prompt = load_prompt("resume_rewrite.txt", bullets=resume_data.experience, job_description=request.job_description)
         ats_prompt = load_prompt("ats_keywords.txt", job_description=request.job_description, resume_text=request.resume_text)
         summary_prompt = load_prompt("final_summary.txt", resume_text=request.resume_text, job_description=request.job_description)
         
-        gap_raw, rewrite_raw, ats_raw, summary_raw = await asyncio.gather(
-            get_completion(gap_prompt, json_mode=True),
+        rewrite_raw, ats_raw, summary_raw = await asyncio.gather(
             get_completion(rewrite_prompt),
             get_completion(ats_prompt, json_mode=True),
             get_completion(summary_prompt)
         )
-
-        
-        gap_data = json.loads(gap_raw)
 
         # Improved Bullets
         try:
@@ -371,8 +425,8 @@ async def analyze(request: AnalyzeRequest):
 
         return AnalyzeResponse(
             match_score=match_score,
-            skill_overlap=gap_data.get("strong_matches", []) + gap_data.get("partial_matches", []),
-            missing_skills=gap_data.get("missing_skills", []),
+            skill_overlap=skill_overlap,
+            missing_skills=missing_skills_deterministic,
             improved_bullets=improved_bullets,
             ats_keywords=ats_keywords,
             summary=summary[:4], # Strictly 4 points
